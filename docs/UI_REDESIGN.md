@@ -143,12 +143,40 @@ Datetimes are sent as absolute ISO instants. The server treats a naive datetime 
 wall-clock string sent unqualified would silently shift the schedule by the UTC offset. The
 `Nobo.toIsoInstant()` helper converts the local date and time inputs to an absolute instant first.
 
-### Honest capability handling
+### Adding a heater: manual registration first
 
-Adding a heater needs the hub's radio to find nearby devices, which is unavailable in demo mode.
-Rather than offering a control that fails, the flow reads `GET /api/capabilities` and, when
-`features.discover_devices.supported` is false, shows the hub's own stated reason and a route into
-settings. The serial-entry path is still offered when discovery is supported.
+There are two ways to add a heater, and an earlier draft of Concept D conflated them.
+
+| | What it is | Availability |
+| --- | --- | --- |
+| **Manual registration** | Type the 12-digit serial printed on the heater. `POST /api/devices`. | Always. It needs no radio. |
+| **Automatic search** | The hub listens for heaters in pairing mode and reports what it hears. `POST/GET/DELETE /api/devices/search`. | Real hub only — `features.discover_devices`. |
+
+Only the second is gated. This matters more than it first appears: **not every Nobø device answers
+an automatic search** (see `Manual_Nobo.pdf`), so manual registration is not a fallback for the
+impatient — for some models it is the only way in, and it is how the original app and Nobø's own
+app both work.
+
+The earlier draft checked `features.discover_devices` before showing the sheet at all, so in demo
+mode the whole *Add a heater* flow was replaced by a "connect a real hub" message and no heater
+could be added by serial. That was wrong on both counts: the capability it checked is not the
+capability the manual path uses, and the manual path is the primary one.
+
+The sheet now leads with the serial field, always enabled, and offers the search underneath. When
+search is unavailable the hub's own stated reason appears in one line and the form above it is
+untouched.
+
+The first three digits of a serial identify the model, so as they are typed the model name and its
+picture appear — the same confirmation the original app gives, and a check on the digits before the
+hub is asked to pair with them. An unrecognised prefix is called out immediately rather than
+becoming a 400 from the server, and *Add heater* stays disabled until the serial is 12 digits and
+the prefix is known.
+
+Each heater also gets **Replace**, for the case the whole feature exists to serve: a heater breaks
+and a new one takes its place. A serial cannot be changed, so `PUT /api/devices/{serial}` with
+`new_serial` pairs the new one first and only removes the old one once that has succeeded — a
+failed replacement leaves the room as it was. Removing the old one and adding a new one separately
+remains the safer habit and the sheet says so.
 
 ### Leaving: the two kinds of away
 
@@ -209,6 +237,80 @@ Inside the card the room name takes a full row, then the set temperature and its
 row below. The whole card is the tap target that opens the room; the stepper is layered above it so
 adjusting a temperature does not navigate.
 
+### Adding a room
+
+The Rooms heading carries an **Add a room** button — the only action on the home screen that is not
+about heat, and placed on the section it belongs to rather than in a global toolbar. Concept D
+previously had no way to create a room at all, which meant a first-run system, or anyone adding a
+loft, had to go back to the current app to do it. A prototype that cannot be used from empty is not
+a prototype of the product.
+
+The sheet asks for a name and, optionally, an icon. Concept D itself never draws the icon — one of
+the criticisms it makes of the current app is that emoji are load-bearing as an icon system — but
+the icon is stored per room by the server and *is* shown by the current app, so refusing to collect
+it would quietly degrade the room for anyone switching back. It is offered, explained, and ignored.
+
+The hub assigns the new room's id, not the client, so the sheet reloads state afterwards rather
+than trusting anything echoed back. New rooms start empty and on the standard week; heaters are
+added or moved into them from inside the room, where the heater list already lives.
+
+The empty state now says what to do next instead of stating a fact, and the room count no longer
+reads "1 rooms".
+
+### The activity log
+
+There is a record of what the system did: every change made through the app, every action the away
+schedule took on its own, and the state of the connection to the hub. It is genuinely useful when
+something has misbehaved and close to useless the rest of the time, so it lives under **Settings**,
+in a Diagnostics card — off the main flow entirely, found when you go looking for it.
+
+This is a direct answer to problem 8 below: the current app puts **Log** in the top-level
+navigation, giving a diagnostics buffer the same prominence as the rooms you actually came for.
+Back from the log returns to Settings rather than Home, because that is where you came from.
+
+The log view filters on the entry's own fields rather than on the wording of its message:
+
+| Filter | Rule |
+| --- | --- |
+| Everything | — |
+| Changes | `source` is `api` or `schedule` |
+| Hub | `source` is `hub` |
+| Problems | `direction` is `error` |
+
+Each chip carries its own count, so an empty Problems filter is visible without selecting it. Errors
+are tinted with the Comfort red and given weight; the raw protocol command, where there is one, is
+kept but demoted to small monospace on its own line — it means nothing to most people and everything
+to the one person debugging a hub.
+
+The server writes timestamps in the Pi's own timezone with no offset, so they are parsed field by
+field rather than handed to `Date`, which would read them as UTC and shift every entry. Times from
+today show as `HH:MM:SS`; older entries gain the date.
+
+The log is fetched when the view opens and polled every ten seconds only while it is open — never
+from the home screen, and never while a sheet is open, which would move the list out from under a
+confirmation. **Clear the log** sits behind a confirmation that says plainly that it discards the
+record and changes no setting and no room. The buffer is in memory, so it starts again empty when
+the system restarts; the view says so rather than letting an empty log look like a fault.
+
+### Static assets must be revalidated
+
+The first build of the two features above appeared to ship correctly and was useless in the
+browser: the new buttons were visible, and clicking them did nothing. Nothing was wrong with the
+code. `StaticFiles` sent an ETag and a `Last-Modified` but no `Cache-Control`, and a browser given
+no caching instruction is free to invent one — it typically holds a file for a fraction of its age
+without revalidating. The freshly deployed `index.html` was fetched, so the buttons appeared, while
+`d.js` came from cache, so nothing was listening for their clicks.
+
+Static files are now served with `Cache-Control: no-cache`, which does not mean "do not store" but
+"revalidate before use". The ETag was already there, so revalidation is a conditional request that
+almost always returns 304 with no body. One small round trip per asset buys the guarantee that what
+is running is what was deployed — which matters a great deal on a prototype being iterated on a Pi.
+
+A dead button is invisible to the rest of the test suite, because the server is perfectly happy, so
+`tests/test_concept_wiring.py` now asserts that every `<button id="…">` in a concept's markup is
+mentioned by that concept's script, and that every `<section class="view">` is handled by its
+`switchView()`.
+
 ### Install on a phone home screen
 
 Concept D ships a web app manifest, a maskable icon, an Apple touch icon, `theme-color`, standalone
@@ -248,6 +350,23 @@ This overrides the earlier note that red was reserved for errors alone; the user
 toast — rather than by colour alone. Every colour has a dark-mode counterpart, and mode is never
 the *only* signal: each segment carries a title attribute and every badge carries its label in
 words.
+
+**These colours apply everywhere a mode appears, including the mode buttons inside a room.** That
+had to be fixed: the house row in `index.html` uses `data-global` and the room row is built in
+`d.js` with `data-zmode`, and only the first had colour rules. Everything else fell through to a
+generic pine "selected" state, so Comfort, Eco, Away and Schedule inside a room were all the same
+green and the selected one was distinguishable only by its label. Each rule now lists both
+attributes.
+
+Note that the room's mode buttons show which *instruction* the room is under, not what the
+schedule happens to be doing this minute. A room following its week shows **Schedule** in violet
+even while the card on the home screen reads "Schedule · Comfort" in red — the card reports the
+mode in force now, the button reports the standing instruction. Colouring the Schedule button by
+the current block would make it change hue through the day.
+
+One collision was cleaned up at the same time: the "Adjustable" tag on a heater reused
+`.badge-mode-normal` and redefined it to pine, which silently overwrote the schedule violet for
+every other user of that class. It now has its own `.badge-ok`.
 
 It is deliberately not modelled on Netatmo or Mill. Both were looked at as competent examples of
 the category and then set aside; the trip-led structure, the paper-and-pine palette and the roof
@@ -289,6 +408,9 @@ generic icons.
 ### What Concept D does not do
 
 - It does not manage users; that links back to the main app.
+- It creates and deletes rooms, but it does not reorder them; the order is the hub's.
+- It shows the activity log but does not export it, and the log is a memory buffer that does not
+  survive a restart. Both are server-side properties, not UI choices.
 - It cannot show whether an element is genuinely drawing power, because the API does not report it.
   Heating is inferred from measured versus target temperature and is labelled as an estimate.
 - The week editor writes whole profiles. It does not rename or reassign profiles, so a room sharing

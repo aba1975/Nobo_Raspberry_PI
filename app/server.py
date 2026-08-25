@@ -1706,12 +1706,27 @@ async def add_zone(zone: ZoneAdd):
         raise HTTPException(status_code=503, detail="Hub not connected")
 
     try:
+        name = zone.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Zone name cannot be empty")
+        if len(encode_hub_name(name).encode('utf-8')) > ZONE_NAME_MAX_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Zone name is too long for the hub (maximum "
+                       f"{ZONE_NAME_MAX_BYTES} bytes)",
+            )
+
         if DEMO_MODE:
+            # Demo mode has to refuse exactly what the hub refuses, or it
+            # teaches the wrong limits.
+            if any(z.get('name', '') == name for z in DEMO_ZONES):
+                raise HTTPException(status_code=400, detail=f"A zone named '{name}' already exists")
+
             # Auto-increment zone_id based on current max
             new_id = str(max((int(z['zone_id']) for z in DEMO_ZONES), default=0) + 1)
             DEMO_ZONES.append({
                 "zone_id": new_id,
-                "name": zone.name.strip(),
+                "name": name,
                 "icon": zone.icon.strip(),
                 "rooms": [],
                 "components": [],
@@ -1722,27 +1737,23 @@ async def add_zone(zone: ZoneAdd):
                 "mode": "normal",
                 "override_id": None,
             })
-            logger.info(f"Demo mode: Zone '{zone.name}' created with id {new_id}")
+            logger.info(f"Demo mode: Zone '{name}' created with id {new_id}")
+            add_log_entry(
+                "sent",
+                f"[DEMO] Zone '{name}' created with id {new_id}",
+                f"A00 0 {name} {DEFAULT_WEEK_PROFILE_ID}",
+            )
             config_persistence.save_demo_zones(DEMO_ZONES)
-            return {"status": "success", "zone_id": new_id, "name": zone.name}
+            return {"status": "success", "zone_id": new_id, "name": name}
 
         # Real hub mode
         if not current_hub:
             raise HTTPException(status_code=503, detail="Hub not connected")
 
-        name = zone.name.strip()
-        if not name:
-            raise HTTPException(status_code=400, detail="Zone name cannot be empty")
-        encoded = encode_hub_name(name)
-        if len(encoded.encode('utf-8')) > ZONE_NAME_MAX_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Zone name is too long for the hub (maximum "
-                       f"{ZONE_NAME_MAX_BYTES} bytes)",
-            )
         if any(decode_hub_name(z.get('name', '')) == name for z in current_hub.zones.values()):
             raise HTTPException(status_code=400, detail=f"A zone named '{name}' already exists")
 
+        encoded = encode_hub_name(name)
         before = set(current_hub.zones)
         # The hub assigns the real id and ignores the one sent, but a placeholder
         # still has to occupy the field.
@@ -4094,7 +4105,31 @@ async def admin_delete_user(request: Request, username: str):
 # (QA defect D-03).
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+class RevalidatingStaticFiles(StaticFiles):
+    """Serve static files with `Cache-Control: no-cache`.
+
+    Without an explicit Cache-Control header a browser is free to apply
+    heuristic caching, and typically will: it holds the file for a fraction of
+    its age with no revalidation. That produced a genuinely confusing failure
+    after a deploy - the new index.html was fetched, so a new button appeared,
+    while the JavaScript that gave the button its behaviour came from cache, so
+    clicking it did nothing at all.
+
+    `no-cache` does not mean "do not store"; it means "revalidate before use".
+    StaticFiles already sends an ETag and Last-Modified, so the revalidation is
+    a conditional request that almost always comes back 304 with no body. The
+    cost is one small round trip per asset; the benefit is that what the user
+    is running is always what was deployed.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
+app.mount("/static", RevalidatingStaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")

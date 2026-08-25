@@ -211,6 +211,10 @@ main { max-width: 940px; margin: 0 auto; padding: 1.1rem 1.1rem 3.5rem; }
 }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .section-note { font-size: .78rem; color: var(--ink-faint); }
+/* Keep the count beside the heading and let the action sit at the far edge,
+   rather than letting space-between spread all three evenly. */
+.section-head > .section-note { margin-right: auto; }
+.btn-add { align-self: center; }
 
 .modes { margin-bottom: 1.5rem; }
 .mode-row {
@@ -226,15 +230,30 @@ main { max-width: 940px; margin: 0 auto; padding: 1.1rem 1.1rem 3.5rem; }
 }
 .mode-glyph { font-size: 1.15rem; line-height: 1; }
 .mode-btn:hover { border-color: var(--pine); color: var(--ink); }
+
+/* A selected mode button wears that mode's own colour, so the room screen, the
+   house row and the badge on the room card all say the same thing in the same
+   hue. Both attributes are listed on every rule because the house row is
+   markup in index.html (data-global) while the room row is built in d.js
+   (data-zmode) - an earlier version coloured only the house row, which left
+   all four buttons inside a room looking identical.
+
+   The plain [aria-pressed] rule below stays as the fallback for any mode
+   without a colour of its own. */
 .mode-btn[aria-pressed="true"] { background: var(--pine-wash); border-color: var(--pine); color: var(--pine); }
-/* "Schedule"/"Home" means following the week, so it takes the schedule violet -
-   otherwise a selected Schedule button reads as Eco now that Eco is green. */
+
+.mode-btn[data-zmode="comfort"][aria-pressed="true"],
+.mode-btn[data-global="comfort"][aria-pressed="true"] { background: var(--m-comfort-wash); border-color: var(--m-comfort); color: var(--m-comfort); }
+.mode-btn[data-zmode="eco"][aria-pressed="true"],
+.mode-btn[data-global="eco"][aria-pressed="true"] { background: var(--m-eco-wash); border-color: var(--m-eco); color: var(--m-eco); }
+.mode-btn[data-zmode="away"][aria-pressed="true"],
+.mode-btn[data-global="away"][aria-pressed="true"] { background: var(--m-away-wash); border-color: var(--m-away); color: var(--m-away); }
+/* "Schedule" and "Home" are the same instruction - follow the week - so they
+   share the schedule violet. Without it a selected Schedule button reads as
+   Eco now that Eco is green. */
 .mode-btn[data-zmode="normal"][aria-pressed="true"],
 .mode-btn[data-global="home"][aria-pressed="true"],
 .mode-btn[data-global="normal"][aria-pressed="true"] { background: var(--m-sched-wash); border-color: var(--m-sched); color: var(--m-sched); }
-.mode-btn[data-global="comfort"][aria-pressed="true"] { background: var(--m-comfort-wash); border-color: var(--m-comfort); color: var(--m-comfort); }
-.mode-btn[data-global="eco"][aria-pressed="true"] { background: var(--m-eco-wash); border-color: var(--m-eco); color: var(--m-eco); }
-.mode-btn[data-global="away"][aria-pressed="true"] { background: var(--m-away-wash); border-color: var(--m-away); color: var(--m-away); }
 
 /* -------------------------------------------------------------- rooms */
 
@@ -343,7 +362,10 @@ main { max-width: 940px; margin: 0 auto; padding: 1.1rem 1.1rem 3.5rem; }
 .badge-mode-eco     { background: var(--m-eco-wash); color: var(--m-eco); border-color: color-mix(in srgb, var(--m-eco) 35%, transparent); }
 .badge-mode-away    { background: var(--m-away-wash); color: var(--m-away); border-color: color-mix(in srgb, var(--m-away) 35%, transparent); }
 .badge-mode-normal  { background: var(--m-sched-wash); color: var(--m-sched); border-color: color-mix(in srgb, var(--m-sched) 35%, transparent); }
-.badge-mode-normal  { background: var(--pine-wash);  color: var(--pine);  border-color: color-mix(in srgb, var(--pine) 30%, transparent); }
+/* Not a mode. "Adjustable" is a property of the hardware, so it gets the
+   neutral pine rather than borrowing a mode colour - it used to reuse
+   .badge-mode-normal and overwrote the schedule violet for everyone. */
+.badge-ok { background: var(--pine-wash); color: var(--pine); border-color: color-mix(in srgb, var(--pine) 30%, transparent); }
 /* A dial you can only turn by hand is a real constraint, so it is called out
    in words, not by a colour alone. */
 .badge-manual { background: transparent; color: var(--ink-soft); border-color: var(--rule); border-style: dashed; }
@@ -367,6 +389,52 @@ main { max-width: 940px; margin: 0 auto; padding: 1.1rem 1.1rem 3.5rem; }
 }
 .sysgrid dt { color: var(--ink-faint); }
 .sysgrid dd { margin: 0; font-weight: 550; }
+
+/* ------------------------------------------------------------ activity log
+   Diagnostics, reached from inside the collapsed System status box. It is a
+   dense, monospaced record on purpose: you are here because something did not
+   behave, and the exact wording and the exact time are the point. */
+
+.log-filters { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+.log-chip {
+  font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer;
+  padding: .4rem .8rem; min-height: 34px;
+  border: 1px solid var(--rule); border-radius: 99px;
+  background: var(--card); color: var(--ink-soft);
+}
+.log-chip:hover { border-color: var(--pine); color: var(--ink); }
+.log-chip[aria-pressed="true"] { background: var(--pine-wash); border-color: var(--pine); color: var(--pine); }
+
+.log-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
+.log-entry {
+  display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: .5rem .8rem;
+  padding: .55rem .7rem; border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  font-size: .82rem; line-height: 1.4;
+}
+.log-time {
+  font-variant-numeric: tabular-nums; font-size: .76rem; color: var(--ink-faint); white-space: nowrap;
+}
+.log-what { color: var(--ink); overflow-wrap: anywhere; }
+/* The raw protocol command, when there was one. Kept but pushed right down in
+   the visual hierarchy - it means nothing to most people and everything to
+   the one person debugging a hub. */
+.log-cmd {
+  grid-column: 3; margin-top: .2rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .74rem; color: var(--ink-faint); overflow-wrap: anywhere;
+}
+.log-entry.is-error { border-color: color-mix(in srgb, var(--m-comfort) 45%, transparent); background: var(--m-comfort-wash); }
+.log-entry.is-error .log-what { color: var(--m-comfort); font-weight: 600; }
+
+.log-foot { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: space-between; align-items: center; margin-top: 1rem; }
+
+@media (max-width: 560px) {
+  .log-entry { grid-template-columns: auto 1fr; }
+  .log-cmd { grid-column: 1 / -1; }
+}
+@media (pointer: coarse) {
+  .log-chip { min-height: 44px; }
+}
 
 /* -------------------------------------------------------- zone detail */
 
@@ -401,6 +469,35 @@ main { max-width: 940px; margin: 0 auto; padding: 1.1rem 1.1rem 3.5rem; }
 .dev-name { font-weight: 620; }
 .dev-meta { font-size: .78rem; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .dev-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
+.dev-actions { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: flex-end; }
+
+/* ------------------------------------------------------- adding a heater
+   Two ways in, and they are not equivalent: typing the serial always works,
+   the hub's radio search does not work on every model and not at all in demo
+   mode. The manual form therefore comes first and is separated from the
+   search by a rule rather than a tab, so neither can be mistaken for the
+   only option. */
+
+.add-dev-section + .add-dev-section {
+  margin-top: 1.1rem; padding-top: 1.1rem; border-top: 1px solid var(--rule);
+}
+.add-dev-h {
+  margin: 0 0 .35rem; font-size: .8rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint);
+}
+
+/* The first three digits name the model, so the picture appears as the serial
+   is typed. It confirms the right box is being registered before the hub is
+   asked to pair with it. */
+.dev-detect:empty { display: none; }
+.dev-detect {
+  display: flex; align-items: center; gap: .8rem;
+  padding: .6rem .75rem; margin: -.3rem 0 .8rem;
+  border-radius: var(--radius-sm); font-size: .84rem; line-height: 1.35;
+}
+.dev-detect .np-device { width: 96px; height: 50px; flex: none; }
+.dev-detect.is-known   { background: var(--frost-wash); color: var(--ink-soft); }
+.dev-detect.is-unknown { background: var(--amber-wash); color: var(--ink-soft); }
 
 .sched { display: grid; gap: .35rem; }
 .sched-day { display: grid; grid-template-columns: 3.2rem 1fr; align-items: center; gap: .7rem; }
